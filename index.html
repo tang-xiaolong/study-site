@@ -1,0 +1,44 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>学习站</title><style>body{margin:0;background:#0d1420}#lk{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:#0d1420;color:#e2e8f2;font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif}#lk .box{width:min(320px,86vw);background:#141d2c;border:1px solid #26324a;border-radius:14px;padding:30px 26px;display:flex;flex-direction:column;gap:14px}#lk h1{font-size:17px;margin:0;letter-spacing:1px}#lk input[type=password]{background:#0d1420;border:1px solid #26324a;border-radius:8px;color:#e2e8f2;font-size:16px;padding:10px 12px;outline:none}#lk input[type=password]:focus{border-color:#5b8def}#lk label{font-size:12.5px;color:#8fa0b8;display:flex;gap:6px;align-items:center}#lk button{background:#5b8def;color:#fff;border:none;border-radius:8px;padding:10px;font-size:15px;font-weight:600;cursor:pointer}#lk button:disabled{opacity:.5}#lk #er{color:#f87171;font-size:12.5px;margin:0;min-height:1em}#st{color:#8fa0b8;text-align:center;margin-top:40vh;font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif}</style></head><body><p id="st">正在连接家里电脑…</p><div id="lk"><div class="box"><h1>📚 学习站</h1><input type="password" id="pw" placeholder="访问密码" autocomplete="current-password"><button id="go">进入</button><p id="er"></p></div></div><script>
+var SALT='a7b85839d7880a34925f81df638da50d',ITER=600000;
+function $(i){return document.getElementById(i);}
+function hx(s){var a=new Uint8Array(s.length/2);for(var i=0;i<a.length;i++)a[i]=parseInt(s.substr(i*2,2),16);return a;}
+function b64(s){var b=atob(s),a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a;}
+function toHex(a){var h='';for(var i=0;i<a.length;i++)h+=a[i].toString(16).padStart(2,'0');return h;}
+function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);
+  if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){}return null;}
+function importRaw(raw){return crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},true,['decrypt']);}
+async function derive(pw){var km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);
+  var bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:hx(SALT),iterations:ITER,hash:'SHA-256'},km,256);
+  return importRaw(new Uint8Array(bits));}
+async function fetchEp(){return (await fetch('endpoint.json?t='+Date.now(),{cache:'no-store'})).json();}
+async function openEp(key,e){var pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:hx(e.iv)},key,b64(e.ct));
+  return JSON.parse(new TextDecoder().decode(pt));}
+async function online(url){var c=new AbortController(),t=setTimeout(function(){c.abort();},8000);
+  try{return (await fetch(url+'/health',{signal:c.signal,cache:'no-store'})).ok;}catch(e){return false;}
+  finally{clearTimeout(t);}}
+var OFF='家里电脑现在不在线（关机、休眠或断网）。电脑关着时可在 GitHub App 打开私有仓 study-archive 阅读，作答发微信。';
+function show(msg){$('st').style.display='none';$('lk').style.display='flex';$('er').textContent=msg||'';$('pw').focus();}
+async function boot(){
+  if(location.hash==='#relogin'){ls('study_dt',null);history.replaceState(null,'',location.pathname);}
+  var kk=ls('sitekey'),dt=ls('study_dt'),p=null;
+  if(kk&&dt){
+    try{p=await openEp(await importRaw(hx(kk)),await fetchEp());}catch(e){ls('sitekey',null);}
+    if(p){if(await online(p.url)){location.replace(p.url+'/auth#'+dt);return;}show(OFF);return;}}
+  show('');}
+async function attempt(){
+  var b=$('go'),pw=$('pw').value||'',e,p;$('er').textContent='';b.disabled=true;b.textContent='进入中…';
+  try{var key=await derive(pw);
+    try{e=await fetchEp();}catch(x){throw new Error('地址指针拉取失败，稍后再试');}
+    try{p=await openEp(key,e);}catch(x){throw new Error('密码不对，再试试');}
+    if(!(await online(p.url)))throw new Error(OFF);
+    var r=await fetch(p.url+'/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({password:pw})}),j={};
+    try{j=await r.json();}catch(x){}
+    if(!r.ok||!j.dt)throw new Error(j.error||('登录被拒（'+r.status+'）'));
+    ls('sitekey',toHex(new Uint8Array(await crypto.subtle.exportKey('raw',key))));ls('study_dt',j.dt);
+    location.replace(p.url+'/auth#'+j.dt);}
+  catch(x){b.disabled=false;b.textContent='进入';$('er').textContent=x.message||String(x);}}
+$('go').addEventListener('click',attempt);
+$('pw').addEventListener('keydown',function(e){if(e.key==='Enter')attempt();});
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
+</script></body></html>
